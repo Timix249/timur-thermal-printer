@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2f2f7">
+<title>Morning Printer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f2f2f7;color:#111;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:16px}.app{max-width:520px;margin:auto}h1{font-size:26px;margin:8px 0 16px}.card{background:#fff;border-radius:18px;padding:16px;margin:0 0 14px;box-shadow:0 1px 2px rgba(0,0,0,.04)}label{display:block;font-weight:650;margin:12px 0 6px}input,select,textarea,button{font:inherit;font-size:16px}input,select,textarea{width:100%;padding:12px;border:1px solid #d1d1d6;border-radius:11px;background:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.checks label{display:flex;align-items:center;gap:9px;font-weight:500}.checks input{width:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;font-weight:750;margin-top:10px;cursor:pointer}.primary{background:#111;color:#fff}.secondary{background:#e5e5ea;color:#111}canvas{display:block;width:100%;max-width:384px;height:auto;margin:auto;background:#fff;border:1px solid #ddd}.status,.note{font-size:13px;color:#666;line-height:1.4;margin-top:10px}.error{color:#b42318}@media(max-width:380px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main class="app">
+<h1>🧾 Ранковий чек</h1>
+<section class="card">
+<label for="city">Місто</label><input id="city" value="Germersheim" autocomplete="address-level2">
+<div class="grid"><div><label for="lang">Мова</label><select id="lang"><option value="uk">Українська</option><option value="de">Deutsch</option></select></div><div><label for="width">Ширина PNG</label><select id="width"><option value="384">384 px</option><option value="576">576 px</option></select></div></div>
+<div class="checks"><label><input id="weather" type="checkbox" checked>Погода</label><label><input id="sun" type="checkbox" checked>Схід / захід сонця</label><label><input id="holiday" type="checkbox" checked>Свято Rheinland-Pfalz</label></div>
+<label for="custom">Текст унизу</label><textarea id="custom" rows="2">Гарного дня!</textarea>
+<button class="btn secondary" id="refresh">↻ Оновити</button>
+</section>
+<section class="card">
+<canvas id="receipt" width="384" height="620"></canvas>
+<div id="status" class="status">Завантажую дані…</div>
+<button class="btn primary" id="save">⬇️ ЗБЕРЕГТИ ФОТО</button>
+<p class="note">На iPhone відкриється системне меню. Виберіть «Зберегти зображення». Якщо системне меню недоступне, PNG буде завантажено як файл.</p>
+</section></main>
+<script>
+const q=id=>document.getElementById(id), canvas=q('receipt');
+let meteo=null, holiday='', resolvedCity='Germersheim';
+const du=['НЕДІЛЯ','ПОНЕДІЛОК','ВІВТОРОК','СЕРЕДА','ЧЕТВЕР','П’ЯТНИЦЯ','СУБОТА'];
+const mu=['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
+function todayLocal(){const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`}
+async function update(){
+ q('status').className='status';q('status').textContent='Оновлюю…';
+ try{
+  const city=q('city').value.trim()||'Germersheim';
+  const gr=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(city)+'&count=1&language=uk&format=json');
+  if(!gr.ok) throw new Error('не вдалося знайти місто');
+  const gj=await gr.json(); if(!gj.results?.[0]) throw new Error('місто не знайдено');
+  const g=gj.results[0]; resolvedCity=g.name||city;
+  const url='https://api.open-meteo.com/v1/forecast?latitude='+g.latitude+'&longitude='+g.longitude+'&current=temperature_2m,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=Europe%2FBerlin&forecast_days=1';
+  const mr=await fetch(url);if(!mr.ok)throw new Error('погода недоступна');meteo=await mr.json();
+  const now=new Date(),date=todayLocal();holiday='';
+  try{const hr=await fetch('https://date.nager.at/api/v3/PublicHolidays/'+now.getFullYear()+'/DE');if(hr.ok){const hs=await hr.json();const h=hs.find(x=>x.date===date&&(!x.counties||x.counties.includes('DE-RP')));holiday=h?.localName||h?.name||''}}catch(e){}
+  draw();q('status').textContent='Готово • '+new Date().toLocaleTimeString('uk-UA',{hour:'2-digit',minute:'2-digit'});
+ }catch(e){q('status').className='status error';q('status').textContent='Помилка: '+e.message;draw()}
+}
+function draw(){
+ const W=Number(q('width').value),de=q('lang').value==='de',now=new Date();
+ const tmp=document.createElement('canvas');tmp.width=W;tmp.height=1000;const ctx=tmp.getContext('2d');
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,tmp.width,tmp.height);ctx.fillStyle='#000';ctx.strokeStyle='#000';ctx.lineWidth=Math.max(2,W/250);let y=42*(W/384),scale=W/384;
+ const font=(s,b=false)=>`${b?'700':'400'} ${Math.round(s*scale)}px -apple-system,BlinkMacSystemFont,"Arial",sans-serif`;
+ const C=(t,s=22,b=false)=>{ctx.font=font(s,b);ctx.textAlign='center';ctx.fillText(t,W/2,y);y+=(s+9)*scale};
+ const L=(t,s=18,b=false)=>{ctx.font=font(s,b);ctx.textAlign='left';ctx.fillText(t,18*scale,y);y+=(s+8)*scale};
+ const rule=()=>{ctx.beginPath();ctx.moveTo(18*scale,y);ctx.lineTo(W-18*scale,y);ctx.stroke();y+=20*scale};
+ const wrap=(t,s=18,b=false)=>{ctx.font=font(s,b);ctx.textAlign='left';let line='';for(const word of String(t).split(' ')){const test=line+word+' ';if(ctx.measureText(test).width>W-36*scale&&line){ctx.fillText(line.trim(),18*scale,y);y+=(s+6)*scale;line=''}line+=word+' '}if(line)ctx.fillText(line.trim(),18*scale,y);y+=(s+12)*scale};
+ C(de?'GUTEN MORGEN':'ДОБРОГО РАНКУ',28,true);rule();
+ C(de?now.toLocaleDateString('de-DE',{weekday:'long'}).toUpperCase():du[now.getDay()],22,true);
+ C(de?now.toLocaleDateString('de-DE',{day:'2-digit',month:'long',year:'numeric'}):now.getDate()+' '+mu[now.getMonth()]+' '+now.getFullYear(),19);
+ C(now.toLocaleTimeString(de?'de-DE':'uk-UA',{hour:'2-digit',minute:'2-digit'}),34,true);C((resolvedCity||q('city').value||'Germersheim').toUpperCase(),21,true);rule();
+ if(q('weather').checked&&meteo?.current&&meteo?.daily){const c=meteo.current,d=meteo.daily;L(de?'WETTER':'ПОГОДА',20,true);C(Math.round(c.temperature_2m)+'°C',44,true);C((de?'Min/Max: ':'Мін/Макс: ')+Math.round(d.temperature_2m_min[0])+'° / '+Math.round(d.temperature_2m_max[0])+'°',18);L((de?'Regen: ':'Дощ: ')+(d.precipitation_probability_max[0]??0)+'%',18);L((de?'Wind: ':'Вітер: ')+Math.round(c.wind_speed_10m)+' km/h',18);rule()}
+ if(q('sun').checked&&meteo?.daily){const d=meteo.daily,tm=x=>new Date(x).toLocaleTimeString(de?'de-DE':'uk-UA',{hour:'2-digit',minute:'2-digit'});L((de?'Sonnenaufgang: ':'Схід сонця: ')+tm(d.sunrise[0]));L((de?'Sonnenuntergang: ':'Захід сонця: ')+tm(d.sunset[0]));rule()}
+ if(q('holiday').checked){L(de?'HEUTE':'СЬОГОДНІ',20,true);wrap(holiday||(de?'Kein gesetzlicher Feiertag in Rheinland-Pfalz':'Немає державного свята у Rheinland-Pfalz'));rule()}
+ if(q('custom').value.trim())wrap(q('custom').value.trim(),20,true);
+ const H=Math.max(Math.round(300*scale),Math.ceil(y+18*scale));canvas.width=W;canvas.height=H;const out=canvas.getContext('2d');out.fillStyle='#fff';out.fillRect(0,0,W,H);out.drawImage(tmp,0,0,W,H,0,0,W,H);
+}
+q('refresh').addEventListener('click',update);q('city').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();update()}});
+['lang','width','weather','sun','holiday'].forEach(id=>q(id).addEventListener('change',draw));q('custom').addEventListener('input',draw);
+q('save').addEventListener('click',()=>canvas.toBlob(async blob=>{if(!blob)return;const file=new File([blob],'morning-receipt.png',{type:'image/png'});try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:'Ранковий чек'});return}}catch(e){if(e?.name==='AbortError')return}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)},'image/png'));
+draw();update();setInterval(draw,60000);
+</script></body></html>
